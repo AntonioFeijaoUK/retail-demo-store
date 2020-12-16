@@ -300,6 +300,8 @@ Resources:
             - Name: SEGMENT_WRITE_KEY
               ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/retaildemostore-segment-write-key'
           Environment:
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
             - Name: PERSONALIZE_CAMPAIGN_ARN
               Value: !Ref EnvPersonalizeCampaignArn          
             - Name: SEARCH_CAMPAIGN_ARN
