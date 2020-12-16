@@ -14,7 +14,10 @@ var carts = map[string]Cart{}
 
 // RepoFindCartByID Function
 func RepoFindCartByID(id string) Cart {
-	cart := carts[id]
+	cart, ok := carts[id]
+	if !ok {
+		return Cart{}
+	}
 	return cart
 }
 
