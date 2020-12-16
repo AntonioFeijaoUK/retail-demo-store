@@ -6,12 +6,27 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
+	"path"
 
+	"github.com/aws/aws-sdk-go/service/eventbridge"
 	"github.com/gorilla/mux"
 )
+
+var EventBus = os.Getenv("EVENT_BUS")
+
+var eventBridgeClient *eventbridge.EventBridge
+
+func init() {
+	mySession := session.Must(session.NewSession())
+
+	eventBridgeClient = eventbridge.New(mySession)
+}
 
 // Index Handler
 func Index(w http.ResponseWriter, r *http.Request) {
@@ -25,7 +40,12 @@ func CartIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(w).Encode(carts); err != nil {
+	var values []Cart
+	for _, value := range carts {
+		values = append(values, value)
+	}
+
+	if err := json.NewEncoder(w).Encode(values); err != nil {
 		panic(err)
 	}
 }
@@ -40,6 +60,34 @@ func CartShowByID(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(RepoFindCartByID(cartID)); err != nil {
 		panic(err)
 	}
+}
+
+func sendEvent(eventType string, cart Cart) {
+	cartJsonBytes, _ := json.Marshal(cart)
+	cartJson := string(cartJsonBytes)
+
+	source := "CartService"
+
+	// write event to event bridge after successfully persisting cart
+	params := &eventbridge.PutEventsInput{
+		Entries: []*eventbridge.PutEventsRequestEntry{
+			{
+				EventBusName: &EventBus,
+				Detail: &cartJson,
+				DetailType: &eventType,
+				Source: &source,
+			},
+		},
+	}
+
+	res, err := eventBridgeClient.PutEvents(params)
+	if err != nil || *res.FailedEntryCount > int64(0) {
+		// we could write to a dead letter queue here
+		log.Println("Sending event(s) to event bus failed.")
+		log.Println(err)
+		log.Println(res)
+	}
+	log.Println(res)
 }
 
 //CartUpdate Func
@@ -66,7 +114,12 @@ func CartUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	t := RepoUpdateCart(cart)
+	id := path.Base(r.URL.Path)
+
+	t := RepoUpdateCart(id, cart)
+
+	sendEvent("CartUpdatedEvent", t)
+
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(t); err != nil {
@@ -99,6 +152,9 @@ func CartCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t := RepoCreateCart(cart)
+
+	sendEvent("CartCreatedEvent", t)
+
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(t); err != nil {
